@@ -16,13 +16,17 @@ function msum_add_roles( $user_id ){
 
 	foreach( msum_get_blog_list( 0, 'all' ) as $key => $blog ) { 
 
-		if( is_user_member_of_blog( $user_id, $blog[ 'blog_id' ] ) )
+		$onlogin = '1' == get_blog_option( $blog[ 'blog_id' ], 'msum_set_onlogin',  '0' ) ? true :false;
+		
+		if( ( $onlogin && $blog[ 'blog_id' ] != get_current_blog_id() ) 
+			|| is_user_member_of_blog( $user_id, $blog[ 'blog_id' ] ) )
+			
 			continue;
 
 		switch_to_blog( $blog[ 'blog_id' ] );
-
+		
 		$role = get_option( 'msum_default_user_role', 'none' ); // if no default set, use 'none'
-
+		
 		if( $role != 'none' )
 			add_user_to_blog( $blog[ 'blog_id' ], $user_id, $role );
 
@@ -51,9 +55,12 @@ add_action( 'wpmu_activate_blog', 'msum_activate_blog_user', 10, 2 );
  * This function calls @see msum_add_roles from the 'wp_login' action.  
  */
 function msum_maybe_add_roles( $user_login ) {
+	
 	$userdata = get_userdatabylogin( $user_login );
+	
+	$onlogin = '1' == get_blog_option( get_current_blog_id(), 'msum_set_onlogin',  '0' ) ? true :false;
 
-	if( $userdata != false && get_user_meta( $userdata->ID, 'msum_has_caps', true ) != 'true' ){
+	if( $userdata != false && ( get_user_meta( $userdata->ID, 'msum_has_caps', true ) != 'true' || $onlogin ) ){
 		msum_add_roles( $userdata->ID );
 	}
 }
