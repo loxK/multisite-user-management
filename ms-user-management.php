@@ -86,6 +86,11 @@ function msum_options(){
 						<option value="none"><?php _e( '-- None --', 'msum' )?></option>
 						<?php wp_dropdown_roles( get_option( 'msum_default_user_role' ) ); ?>
 					</select>
+					<br>
+					<label for="msum_set_onlogin-<?php echo $blog[ 'blog_id' ]; ?>">
+						<input type="checkbox" value="1" name="msum_set_onlogin[<?php echo $blog[ 'blog_id' ]; ?>]" id="msum_set_onlogin-<?php echo $blog[ 'blog_id' ]; ?>" <?php checked('1', get_option( 'msum_set_onlogin' ))?>>
+						<?php _e( 'Apply the role only when the users sign in that blog the first time.', 'msum' )?>
+					</label>
 				</td> 
 			</tr>
 		<?php restore_current_blog();
@@ -107,14 +112,21 @@ function msum_options_update(){
 
 	foreach( $_POST[ 'msum_default_user_role' ] as $blog_id => $new_role ) { 
 		switch_to_blog( $blog_id );
-		$old_role = get_option( 'msum_default_user_role', 'none' ); // default to none
-
-		if( $old_role == $new_role ) {
+		
+		$old_role 		= get_option( 'msum_default_user_role', 'none' ); // default to none
+		$old_onlogin 	= get_option( 'msum_set_onlogin', '0' ); // default to 0
+		
+		// sets the onlogin flag
+		$onlogin = ! empty( $_POST[ 'msum_set_onlogin' ][$blog_id] ) && '1' === $_POST[ 'msum_set_onlogin' ][$blog_id] && 'none' !== $new_role ? '1' : '0';
+		update_option( 'msum_set_onlogin',  $onlogin );
+		
+		if( $old_role == $new_role && $old_onlogin == $onlogin ) {
 			restore_current_blog();
 			continue;
 		}
 
-		$blog_users = msum_get_users_with_role( $old_role );
+		$blog_users = msum_get_users_with_role( $old_role == $new_role ? 'none' : $old_role, $onlogin ? true : false );
+	
 		foreach( $blog_users as $blog_user ) {
 			if( $old_role != 'none' )
 				remove_user_from_blog( $blog_user, $blog_id );
@@ -126,6 +138,7 @@ function msum_options_update(){
 
 		restore_current_blog();
 	}
+	
 }
 add_action( 'update_wpmu_options', 'msum_options_update' );
 
@@ -136,16 +149,16 @@ add_action( 'update_wpmu_options', 'msum_options_update' );
  * @param $role string The role to get the users for
  * @return $users array Array of user IDs for those users with the given role. 
  */
-function msum_get_users_with_role( $role ) {
+function msum_get_users_with_role( $role, $onlogin = false ) {
 	global $wpdb;
-
+	
 	if( $role != 'none' ) {
 		$sql = $wpdb->prepare( "SELECT DISTINCT($wpdb->users.ID) FROM $wpdb->users 
 						INNER JOIN $wpdb->usermeta ON $wpdb->users.ID = $wpdb->usermeta.user_id
 						WHERE $wpdb->usermeta.meta_key = '{$wpdb->prefix}capabilities' 
 						AND $wpdb->usermeta.meta_value LIKE %s", '%' . $role . '%' );
 
-	} else { // get users without a role for current site
+	} else if ( ! $onlogin ) { // get users without a role for current site, except if we set roles onlogin
 		$sql = "SELECT DISTINCT($wpdb->users.ID) FROM $wpdb->users
 				 WHERE $wpdb->users.ID NOT IN (
 					SELECT $wpdb->usermeta.user_id FROM $wpdb->usermeta
@@ -153,7 +166,8 @@ function msum_get_users_with_role( $role ) {
 					)";
 	}
 
-	$users = $wpdb->get_col( $sql );
+	$users = array();
+	if( isset($sql) ) $users = $wpdb->get_col( $sql );
 
 	if( $role == 'none' ) { // if we got all users without a capability for the site, that includes super admins
 		$super_users = get_super_admins();
